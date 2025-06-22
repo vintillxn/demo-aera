@@ -1,0 +1,117 @@
+name: Terraform Setup Azure CI/CD
+
+on:
+
+  workflow_dispatch:
+
+jobs:
+  "terraform-plan-network":
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./plans/network/
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v1
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Initialize Terraform
+        run: terraform init
+      - name: Generate Terraform Plan
+        run: terraform plan -out=tfplan -var="subscriptionID=${{secrets.SUBSCRIPTION_ID}}"
+      - name: Create or update infrastructure
+        run: terraform apply -auto-approve -var="subscriptionID=${{secrets.SUBSCRIPTION_ID}}"
+
+  "terraform-plan-aks":
+    runs-on: ubuntu-latest
+    needs: "terraform-plan-aks"
+    defaults:
+      run:
+        working-directory: ./plans/aks/
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v1
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Initialize Terraform
+        run: terraform init
+      - name: Generate Terraform Plan
+        run: terraform plan -out=tfplan -var="subscriptionID=${{secrets.SUBSCRIPTION_ID}}"
+      - name: Create or update infrastructure
+        run: terraform apply -auto-approve -var="subscriptionID=${{secrets.SUBSCRIPTION_ID}}"
+
+  "terraform-create-ACR":
+    runs-on: ubuntu-latest
+    needs: "terraform-plan-network"
+    defaults:
+      run:
+        working-directory: ./plans/container-registry/
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_wrapper: false
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Initialize Terraform
+        run: terraform init
+      - name: Generate Terraform Plan
+        run: terraform plan -out=tfplan -var="subscriptionID=${{secrets.SUBSCRIPTION_ID}}"
+      - name: Create or update infrastructure
+        id: tf
+        run: |
+          terraform apply -auto-approve -var="subscriptionID=${{secrets.SUBSCRIPTION_ID}}"
+          echo "acr_url=$(terraform output -raw acr_url)" >> $GITHUB_OUTPUT
+          echo "acr_username=$(terraform output -raw usr)" >> $GITHUB_OUTPUT
+          echo "acr_password=$(terraform output -raw pswd)" >> $GITHUB_OUTPUT
+      - name: Docker Login
+        uses: docker/login-action@v3.4.0
+        with:
+          password: ${{ steps.tf.outputs.acr_password }}
+          registry: ${{ steps.tf.outputs.acr_url }}
+          username: ${{ steps.tf.outputs.acr_username }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tf.outputs.acr_url }}/myapp:latest
+          context: "{{defaultContext}}:Docker"
+
+  tf-deploy-k8s-app:
+    runs-on: ubuntu-latest
+    needs: "terraform-plan-aks"
+    defaults:
+      run:
+        working-directory: ./plans/deploy-app/
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v1
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Initialize Terraform
+        run: terraform init
+      - name: Generate Terraform Plan
+        run: terraform plan -out=tfplan -var="subscriptionID=${{secrets.SUBSCRIPTION_ID}}"
+      - name: Create or update infrastructure
+        run: terraform apply -auto-approve -var="subscriptionID=${{secrets.SUBSCRIPTION_ID}}"
