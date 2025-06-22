@@ -28,7 +28,7 @@ jobs:
 
   "terraform-plan-aks":
     runs-on: ubuntu-latest
-    needs: "terraform-plan-aks"
+    needs: "terraform-plan-network"
     defaults:
       run:
         working-directory: ./plans/aks/
@@ -50,7 +50,7 @@ jobs:
 
   "terraform-create-ACR":
     runs-on: ubuntu-latest
-    needs: "terraform-plan-network"
+    needs: "terraform-plan-aks"
     defaults:
       run:
         working-directory: ./plans/container-registry/
@@ -96,7 +96,7 @@ jobs:
 
   tf-deploy-k8s-app:
     runs-on: ubuntu-latest
-    needs: "terraform-plan-aks"
+    needs: "terraform-create-ACR"
     defaults:
       run:
         working-directory: ./plans/deploy-app/
